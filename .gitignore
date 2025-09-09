@@ -44,18 +44,15 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Research data and large files
-*.pdf
+# Large binary files (but keep research PDFs)
 *.zip
 *.tar.gz
 *.rar
 
-# Data files (if containing sensitive information)
-data/
-datasets/
-*.csv
-*.xlsx
-*.json
+# Temporary data files (but keep research data)
+temp_*
+tmp_*
+*.tmp
 
 # Model files
 *.pkl
