@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Performance Statistics - Flower Detection System{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="card shadow">
+            <div class="card-header bg-info text-white">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-chart-bar"></i> Performance Statistics
+                </h3>
+            </div>
+            <div class="card-body">
+                <!-- Key Metrics -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white text-center">
+                            <div class="card-body">
+                                <i class="fas fa-images fa-2x mb-2"></i>
+                                <h4>{{ stats.total_inferences }}</h4>
+                                <p class="mb-0">Total Inferences</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white text-center">
+                            <div class="card-body">
+                                <i class="fas fa-tachometer-alt fa-2x mb-2"></i>
+                                <h4>{{ "%.1f"|format(stats.inferences_per_second) }}</h4>
+                                <p class="mb-0">Images/Second</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white text-center">
+                            <div class="card-body">
+                                <i class="fas fa-clock fa-2x mb-2"></i>
+                                <h4>{{ "%.1f"|format(stats.average_time_ms) }}</h4>
+                                <p class="mb-0">Avg Time (ms)</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white text-center">
+                            <div class="card-body">
+                                <i class="fas fa-microchip fa-2x mb-2"></i>
+                                <h4>{{ stats.device.split(':')[0].upper() }}</h4>
+                                <p class="mb-0">Device</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Statistics -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-chart-line"></i> Performance Metrics
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <table class="table table-striped">
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Total Inferences</strong></td>
+                                            <td>{{ stats.total_inferences }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Total Time</strong></td>
+                                            <td>{{ "%.2f"|format(stats.total_time_seconds) }} seconds</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Average Time</strong></td>
+                                            <td>{{ "%.2f"|format(stats.average_time_ms) }} ms</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Throughput</strong></td>
+                                            <td>{{ "%.2f"|format(stats.inferences_per_second) }} images/second</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Device</strong></td>
+                                            <td>{{ stats.device }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Model Path</strong></td>
+                                            <td><code>{{ stats.model_path }}</code></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-info-circle"></i> System Information
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <h6>Performance Rating</h6>
+                                    {% if stats.inferences_per_second > 10 %}
+                                        <span class="badge bg-success fs-6">Excellent</span>
+                                        <p class="text-muted mt-2">Very fast inference speed, suitable for real-time applications.</p>
+                                    {% elif stats.inferences_per_second > 5 %}
+                                        <span class="badge bg-warning fs-6">Good</span>
+                                        <p class="text-muted mt-2">Good inference speed, suitable for most applications.</p>
+                                    {% else %}
+                                        <span class="badge bg-danger fs-6">Slow</span>
+                                        <p class="text-muted mt-2">Consider optimization for better performance.</p>
+                                    {% endif %}
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <h6>Latency Analysis</h6>
+                                    {% if stats.average_time_ms < 100 %}
+                                        <span class="badge bg-success">Low Latency</span>
+                                        <p class="text-muted mt-2">Sub-100ms inference time, excellent for real-time use.</p>
+                                    {% elif stats.average_time_ms < 500 %}
+                                        <span class="badge bg-warning">Medium Latency</span>
+                                        <p class="text-muted mt-2">Acceptable latency for most use cases.</p>
+                                    {% else %}
+                                        <span class="badge bg-danger">High Latency</span>
+                                        <p class="text-muted mt-2">Consider optimization or hardware upgrade.</p>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <h6>Usage Statistics</h6>
+                                    <div class="progress mb-2" style="height: 20px;">
+                                        <div class="progress-bar" style="width: {{ (stats.total_inferences / 1000 * 100) | round(1) }}%">
+                                            {{ stats.total_inferences }} / 1000
+                                        </div>
+                                    </div>
+                                    <p class="text-muted">Progress towards 1000 total inferences</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Chart Placeholder -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-area"></i> Performance Trends
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-chart-line fa-3x mb-3"></i>
+                            <p>Performance trend visualization would be displayed here.</p>
+                            <p class="small">This could show inference time over time, throughput trends, and usage patterns.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="text-center mt-4">
+                    <a href="{{ url_for('index') }}" class="btn btn-primary">
+                        <i class="fas fa-upload"></i> Upload New Image
+                    </a>
+                    <button class="btn btn-outline-secondary" onclick="refreshStats()">
+                        <i class="fas fa-sync-alt"></i> Refresh Stats
+                    </button>
+                    <button class="btn btn-outline-info" onclick="exportStats()">
+                        <i class="fas fa-download"></i> Export Data
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Tips -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-lightbulb"></i> Performance Optimization Tips
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-rocket text-primary"></i> Speed Optimization</h6>
+                        <ul class="text-muted">
+                            <li>Use batch processing for multiple images</li>
+                            <li>Resize images to optimal dimensions (224x224)</li>
+                            <li>Consider GPU acceleration if available</li>
+                            <li>Use persistent model loading</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-cogs text-secondary"></i> System Optimization</h6>
+                        <ul class="text-muted">
+                            <li>Ensure sufficient RAM for model loading</li>
+                            <li>Close unnecessary applications</li>
+                            <li>Use SSD storage for faster I/O</li>
+                            <li>Monitor CPU and memory usage</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function refreshStats() {
+    location.reload();
+}
+
+function exportStats() {
+    const stats = {{ stats | tojson }};
+    const dataStr = JSON.stringify(stats, null, 2);
+    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(dataBlob);
+    link.download = 'flower_detection_stats.json';
+    link.click();
+}
+
+// Auto-refresh every 30 seconds
+setInterval(refreshStats, 30000);
+</script>
+{% endblock %}

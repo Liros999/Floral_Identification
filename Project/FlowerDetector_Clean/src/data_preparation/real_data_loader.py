@@ -1,7 +1,8 @@
 """
-REAL DATA LOADER - NO DUMMY DATA ALLOWED
+OPTIMIZED REAL DATA LOADER - NO DUMMY DATA ALLOWED
 Connects directly to Google Drive images and validates integrity.
 Follows scientific requirements: real data only, no fake anything.
+Enhanced with performance optimizations for production deployment.
 """
 
 import torch
@@ -13,14 +14,19 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any
 import random
 from tqdm import tqdm
+import psutil
+import os
+from functools import lru_cache
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 class FlowerDataset(Dataset):
     """
-    Real flower dataset - loads actual images from Google Drive.
+    Optimized real flower dataset - loads actual images from Google Drive.
     NO FAKE DATA, NO DUMMY DATA, NO PLACEHOLDERS.
+    Enhanced with caching and performance optimizations.
     """
     
     def __init__(
@@ -29,7 +35,9 @@ class FlowerDataset(Dataset):
         negative_dir: Path, 
         transform=None,
         max_images_per_class: int = None,
-        validate_images: bool = True
+        validate_images: bool = True,
+        enable_caching: bool = True,
+        cache_size: int = 1000
     ):
         """
         Initialize with REAL image directories.
@@ -40,10 +48,20 @@ class FlowerDataset(Dataset):
             transform: Image transformations
             max_images_per_class: Limit images per class (for testing)
             validate_images: Validate each image can be loaded
+            enable_caching: Enable LRU caching for loaded images
+            cache_size: Maximum number of images to cache
         """
         self.positive_dir = Path(positive_dir)
         self.negative_dir = Path(negative_dir)
         self.transform = transform
+        self.enable_caching = enable_caching
+        self.cache_size = cache_size
+        
+        # Initialize cache if enabled
+        if self.enable_caching:
+            self._image_cache = {}
+            self._cache_hits = 0
+            self._cache_misses = 0
         
         # Validate directories exist
         if not self.positive_dir.exists():
@@ -146,22 +164,40 @@ class FlowerDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         """
-        Load and return a REAL image and its label.
+        Load and return a REAL image and its label with caching optimization.
         NO FAKE DATA - loads actual image from disk.
         """
         image_path = self.image_paths[idx]
         label = self.labels[idx]
         
-        # Load REAL image
-        try:
-            image = Image.open(image_path).convert('RGB')
-        except Exception as e:
-            logger.error(f"Failed to load REAL image {image_path}: {e}")
-            raise RuntimeError(f"Cannot load REAL image: {image_path}")
+        # Check cache first if enabled
+        if self.enable_caching and image_path in self._image_cache:
+            self._cache_hits += 1
+            image = self._image_cache[image_path].copy()
+        else:
+            self._cache_misses += 1
+            # Load REAL image
+            try:
+                image = Image.open(image_path).convert('RGB')
+            except Exception as e:
+                logger.error(f"Failed to load REAL image {image_path}: {e}")
+                raise RuntimeError(f"Cannot load REAL image: {image_path}")
+            
+            # Cache the loaded image if caching is enabled and cache not full
+            if self.enable_caching and len(self._image_cache) < self.cache_size:
+                self._image_cache[image_path] = image.copy()
         
         # Apply transformations if provided
         if self.transform:
-            image = self.transform(image)
+            # Check if it's an Albumentations transform
+            if hasattr(self.transform, 'transforms') and hasattr(self.transform, '__call__'):
+                # Albumentations transform - convert PIL to numpy first
+                image_np = np.array(image)  # Convert PIL to numpy
+                transformed = self.transform(image=image_np)
+                image = transformed['image']  # Returns torch tensor
+            else:
+                # Torchvision transform - use positional arguments
+                image = self.transform(image)
         
         return image, label
     
@@ -176,13 +212,71 @@ class FlowerDataset(Dataset):
             'total': len(self.labels),
             'balance_ratio': positive_count / negative_count if negative_count > 0 else float('inf')
         }
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get caching performance statistics."""
+        if not self.enable_caching:
+            return {'caching_enabled': False}
+        
+        total_requests = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total_requests if total_requests > 0 else 0
+        
+        return {
+            'caching_enabled': True,
+            'cache_size': len(self._image_cache),
+            'max_cache_size': self.cache_size,
+            'cache_hits': self._cache_hits,
+            'cache_misses': self._cache_misses,
+            'hit_rate': hit_rate,
+            'memory_usage_mb': sum(img.size[0] * img.size[1] * 3 for img in self._image_cache.values()) / (1024 * 1024)
+        }
 
 
-def create_real_data_transforms(image_size: Tuple[int, int] = (224, 224)) -> Dict[str, transforms.Compose]:
+def create_real_data_transforms(image_size: Tuple[int, int] = (224, 224), use_advanced: bool = False) -> Dict[str, transforms.Compose]:
     """
     Create image transformations for REAL data.
     NO FAKE AUGMENTATIONS - scientifically validated transforms only.
+    
+    Args:
+        image_size: Target image size (height, width)
+        use_advanced: If True, use Albumentations for advanced augmentation
     """
+    if use_advanced:
+        # Use advanced Albumentations transforms (integrated)
+        try:
+            import albumentations as A
+            from albumentations.pytorch import ToTensorV2
+            
+            # CORRECTED advanced training transforms with Albumentations
+            train_transform = A.Compose([
+                A.Resize(256, 256),
+                A.RandomCrop(image_size[0], image_size[1]),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.1),
+                A.Affine(translate_percent=0.1, scale=(0.8, 1.2), rotate=(-30, 30), p=0.5),
+                A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.7),
+                A.OneOf([
+                    A.GaussianBlur(blur_limit=3, p=0.3),
+                    A.MotionBlur(blur_limit=3, p=0.3),
+                    A.GaussNoise(std_range=(0.01, 0.05), p=0.3),  # Corrected parameter name and range
+                ], p=0.3),
+                A.CoarseDropout(num_holes_range=(1, 8), hole_height_range=(8, 16), hole_width_range=(8, 16), p=0.3),  # Fixed parameters
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
+            
+            val_transform = A.Compose([
+                A.Resize(image_size[0], image_size[1]),
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
+            
+            logger.info("Using advanced Albumentations transforms")
+            return {'train': train_transform, 'val': val_transform, 'test': val_transform}
+            
+        except ImportError:
+            logger.warning("Albumentations not available, falling back to torchvision transforms")
+            use_advanced = False
     
     # Training transforms: basic augmentation scientifically proven to help
     train_transform = transforms.Compose([
@@ -222,8 +316,9 @@ def create_real_data_transforms(image_size: Tuple[int, int] = (224, 224)) -> Dic
 
 def create_real_data_loaders(config: Dict[str, Any]) -> Dict[str, DataLoader]:
     """
-    Create data loaders for REAL Google Drive images.
+    Create OPTIMIZED data loaders for REAL Google Drive images.
     NO DUMMY DATA - connects to actual image directories.
+    Enhanced with performance optimizations for production deployment.
     """
     # Get paths from config
     data_paths = config['data_paths']
@@ -236,6 +331,11 @@ def create_real_data_loaders(config: Dict[str, Any]) -> Dict[str, DataLoader]:
     batch_size = data_config['batch_size']
     num_workers = data_config['num_workers']
     
+    # Optimize num_workers for Intel Core Ultra 7
+    optimal_workers = min(psutil.cpu_count(logical=False), 8)  # Use all physical cores
+    actual_workers = min(num_workers, optimal_workers)
+    logger.info(f"Using {actual_workers} workers (optimal: {optimal_workers}, configured: {num_workers})")
+    
     # Create transforms
     transforms_dict = create_real_data_transforms(image_size)
     
@@ -246,20 +346,24 @@ def create_real_data_loaders(config: Dict[str, Any]) -> Dict[str, DataLoader]:
         negative_dir=negative_dir,
         transform=transforms_dict['train'],
         max_images_per_class=100,  # Start with small subset for testing
-        validate_images=True
+        validate_images=True,
+        enable_caching=True,  # Enable caching for performance
+        cache_size=1000  # Cache up to 1000 images
     )
     
     # Check class distribution
     distribution = full_dataset.get_class_distribution()
     logger.info(f"REAL data class distribution: {distribution}")
     
-    # Create data loader
+    # Create OPTIMIZED data loader
     data_loader = DataLoader(
         full_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=min(num_workers, 2),  # Limit for testing
-        pin_memory=False  # CPU only
+        num_workers=actual_workers,
+        pin_memory=False,  # CPU only
+        persistent_workers=True,  # Keep workers alive between epochs
+        prefetch_factor=2  # Prefetch 2 batches per worker
     )
     
     return {

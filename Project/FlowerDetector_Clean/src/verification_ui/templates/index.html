@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Image - Flower Detection System{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-upload"></i> Upload Image for Flower Detection
+                </h3>
+            </div>
+            <div class="card-body">
+                <!-- Single File Upload -->
+                <div class="mb-4">
+                    <h5>Single Image Upload</h5>
+                    <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                        <div class="upload-area" id="uploadArea">
+                            <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                            <h5>Drag & Drop or Click to Upload</h5>
+                            <p class="text-muted">Supports: PNG, JPG, JPEG, GIF, BMP, TIFF (Max 16MB)</p>
+                            <input type="file" name="file" id="fileInput" class="d-none" accept="image/*" required>
+                            <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('fileInput').click()">
+                                Choose File
+                            </button>
+                        </div>
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary" id="uploadBtn" disabled>
+                                <i class="fas fa-search"></i> Detect Flower
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <hr>
+
+                <!-- Batch Upload -->
+                <div class="mb-4">
+                    <h5>Batch Upload</h5>
+                    <form id="batchForm" enctype="multipart/form-data">
+                        <div class="upload-area" id="batchUploadArea">
+                            <i class="fas fa-images fa-3x text-muted mb-3"></i>
+                            <h5>Drag & Drop Multiple Images</h5>
+                            <p class="text-muted">Select multiple images for batch processing</p>
+                            <input type="file" name="files" id="batchFileInput" class="d-none" accept="image/*" multiple>
+                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('batchFileInput').click()">
+                                Choose Files
+                            </button>
+                        </div>
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-secondary" id="batchUploadBtn" disabled>
+                                <i class="fas fa-tasks"></i> Process Batch
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Preview Area -->
+                <div id="previewArea" class="mt-4" style="display: none;">
+                    <h6>Preview:</h6>
+                    <div id="imagePreview" class="text-center"></div>
+                </div>
+
+                <!-- Batch Results -->
+                <div id="batchResults" class="mt-4" style="display: none;">
+                    <h6>Batch Results:</h6>
+                    <div id="batchResultsContent"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle"></i> How to Use
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Single Image:</h6>
+                        <ol>
+                            <li>Click "Choose File" or drag an image to the upload area</li>
+                            <li>Click "Detect Flower" to analyze the image</li>
+                            <li>View the prediction results with confidence scores</li>
+                        </ol>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Batch Processing:</h6>
+                        <ol>
+                            <li>Select multiple images using "Choose Files"</li>
+                            <li>Click "Process Batch" to analyze all images</li>
+                            <li>View results for all images in a table format</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Single file upload handling
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+const uploadBtn = document.getElementById('uploadBtn');
+const previewArea = document.getElementById('previewArea');
+const imagePreview = document.getElementById('imagePreview');
+
+// Drag and drop functionality
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        handleFileSelect();
+    }
+});
+
+fileInput.addEventListener('change', handleFileSelect);
+
+function handleFileSelect() {
+    const file = fileInput.files[0];
+    if (file) {
+        uploadBtn.disabled = false;
+        
+        // Show preview
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            imagePreview.innerHTML = `
+                <img src="${e.target.result}" class="img-fluid" style="max-height: 300px; border-radius: 10px;">
+                <p class="mt-2"><strong>Selected:</strong> ${file.name}</p>
+            `;
+            previewArea.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    } else {
+        uploadBtn.disabled = true;
+        previewArea.style.display = 'none';
+    }
+}
+
+// Batch upload handling
+const batchUploadArea = document.getElementById('batchUploadArea');
+const batchFileInput = document.getElementById('batchFileInput');
+const batchUploadBtn = document.getElementById('batchUploadBtn');
+const batchResults = document.getElementById('batchResults');
+const batchResultsContent = document.getElementById('batchResultsContent');
+
+batchUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    batchUploadArea.classList.add('dragover');
+});
+
+batchUploadArea.addEventListener('dragleave', () => {
+    batchUploadArea.classList.remove('dragover');
+});
+
+batchUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    batchUploadArea.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        batchFileInput.files = files;
+        handleBatchFileSelect();
+    }
+});
+
+batchFileInput.addEventListener('change', handleBatchFileSelect);
+
+function handleBatchFileSelect() {
+    const files = batchFileInput.files;
+    if (files.length > 0) {
+        batchUploadBtn.disabled = false;
+        batchUploadBtn.textContent = `Process ${files.length} Files`;
+    } else {
+        batchUploadBtn.disabled = true;
+        batchUploadBtn.textContent = 'Process Batch';
+    }
+}
+
+batchUploadBtn.addEventListener('click', async () => {
+    const formData = new FormData();
+    const files = batchFileInput.files;
+    
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    
+    batchUploadBtn.disabled = true;
+    batchUploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    
+    try {
+        const response = await fetch('/batch', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            displayBatchResults(data);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        batchUploadBtn.disabled = false;
+        batchUploadBtn.innerHTML = '<i class="fas fa-tasks"></i> Process Batch';
+    }
+});
+
+function displayBatchResults(data) {
+    let html = `
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Prediction</th>
+                        <th>Confidence</th>
+                        <th>Time (ms)</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    data.predictions.forEach(pred => {
+        const confidenceClass = pred.confidence > 0.7 ? 'success' : pred.confidence > 0.5 ? 'warning' : 'danger';
+        const predictionIcon = pred.prediction === 'flower' ? 'fas fa-seedling text-success' : 'fas fa-image text-muted';
+        
+        html += `
+            <tr>
+                <td>${pred.filename}</td>
+                <td><i class="${predictionIcon}"></i> ${pred.prediction}</td>
+                <td>
+                    <span class="badge bg-${confidenceClass}">${(pred.confidence * 100).toFixed(1)}%</span>
+                </td>
+                <td>${pred.inference_time_ms ? pred.inference_time_ms.toFixed(1) : 'N/A'}</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    batchResultsContent.innerHTML = html;
+    batchResults.style.display = 'block';
+}
+</script>
+{% endblock %}

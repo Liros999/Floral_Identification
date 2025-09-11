@@ -5,19 +5,17 @@ data:
   - 224
   - 224
   negative_images_subpath: negative_images (1)
-  num_workers: 2
+  num_workers: 8
   positive_images_subpath: positive_images
   stratified_splits: true
   test_ratio: 0.15
   train_ratio: 0.7
   val_ratio: 0.15
-hard_negative_mining:
-  batch_size_inference: 32
-  confidence_threshold: 0.9
+# Removed unused hard_negative_mining section
 model:
-  architecture: resnet50
-  dropout_rate: 0.5
-  freeze_backbone_layers: 100
+  architecture: efficientnet_b0
+  dropout_rate: 0.3
+  freeze_backbone_layers: 3
   num_classes: 2
   pretrained: true
 reproducibility:
@@ -35,17 +33,17 @@ training:
     monitor: val_f1
     patience: 8
   epochs: 50
-  learning_rate: 0.0003
+  learning_rate: 0.0001
   min_recall: 0.85
-  optimizer: adam
+  optimizer: adamw
   production_images_per_class: null
   quick_test_images_per_class: 50
   quick_test_mode: false
-  scheduler:
-    enabled: true
-    factor: 0.5
-    min_lr: 1.0e-05
-    patience: 5
-    type: reduce_on_plateau
+  scheduler: cosine_annealing
+  min_lr: 1.0e-06
   target_precision: 0.98
   weight_decay: 0.0001
+  # Two-stage fine-tuning strategy
+  two_stage_training: true
+  stage1_epochs: 10  # Freeze backbone, train only classifier
+  stage2_learning_rate: 1.0e-05  # Very low LR for fine-tuning

@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}Prediction Result - Flower Detection System{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- Prediction Result Card -->
+        <div class="card shadow prediction-card {{ 'prediction-flower' if result.prediction == 'flower' else 'prediction-background' }}">
+            <div class="card-header">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-{{ 'seedling' if result.prediction == 'flower' else 'image' }}"></i>
+                    Prediction Result
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <!-- Image Display -->
+                        <div class="text-center mb-4">
+                            <img src="{{ url_for('static', filename='uploads/' + result.filename) }}" 
+                                 class="img-fluid rounded shadow" 
+                                 style="max-height: 400px;">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <!-- Prediction Details -->
+                        <div class="mb-4">
+                            <h4 class="text-{{ 'success' if result.prediction == 'flower' else 'secondary' }}">
+                                <i class="fas fa-{{ 'seedling' if result.prediction == 'flower' else 'image' }}"></i>
+                                {{ result.prediction.title() }}
+                            </h4>
+                            <p class="text-muted">Confidence: <strong>{{ (result.confidence * 100) | round(1) }}%</strong></p>
+                        </div>
+
+                        <!-- Confidence Bars -->
+                        <div class="mb-4">
+                            <h6>Confidence Breakdown:</h6>
+                            
+                            <!-- Flower Confidence -->
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span><i class="fas fa-seedling text-success"></i> Flower</span>
+                                    <span>{{ (result.probabilities.flower * 100) | round(1) }}%</span>
+                                </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar flower-confidence" 
+                                         style="width: {{ result.probabilities.flower * 100 }}%">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Background Confidence -->
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span><i class="fas fa-image text-muted"></i> Background</span>
+                                    <span>{{ (result.probabilities.background * 100) | round(1) }}%</span>
+                                </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar background-confidence" 
+                                         style="width: {{ result.probabilities.background * 100 }}%">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Performance Info -->
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6><i class="fas fa-info-circle"></i> Performance Info</h6>
+                                <ul class="list-unstyled mb-0">
+                                    <li><strong>Inference Time:</strong> {{ result.inference_time_ms | round(1) }} ms</li>
+                                    <li><strong>Timestamp:</strong> {{ result.timestamp }}</li>
+                                    <li><strong>Model:</strong> {{ result.model_path.split('/')[-1] }}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="text-center mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">
+                <i class="fas fa-upload"></i> Upload Another Image
+            </a>
+            <button class="btn btn-outline-secondary" onclick="window.print()">
+                <i class="fas fa-print"></i> Print Result
+            </button>
+            <button class="btn btn-outline-info" onclick="shareResult()">
+                <i class="fas fa-share"></i> Share Result
+            </button>
+        </div>
+
+        <!-- Detailed Analysis -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i> Detailed Analysis
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Prediction Confidence</h6>
+                        <div class="progress mb-3" style="height: 25px;">
+                            <div class="progress-bar {{ 'bg-success' if result.confidence > 0.7 else 'bg-warning' if result.confidence > 0.5 else 'bg-danger' }}" 
+                                 style="width: {{ result.confidence * 100 }}%">
+                                {{ (result.confidence * 100) | round(1) }}%
+                            </div>
+                        </div>
+                        <p class="text-muted">
+                            {% if result.confidence > 0.8 %}
+                                Very high confidence prediction
+                            {% elif result.confidence > 0.6 %}
+                                High confidence prediction
+                            {% elif result.confidence > 0.4 %}
+                                Medium confidence prediction
+                            {% else %}
+                                Low confidence prediction
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Model Performance</h6>
+                        <ul class="list-unstyled">
+                            <li><i class="fas fa-clock"></i> Processing time: {{ result.inference_time_ms | round(1) }} ms</li>
+                            <li><i class="fas fa-microchip"></i> Device: {{ result.device }}</li>
+                            <li><i class="fas fa-calendar"></i> Analyzed: {{ result.timestamp }}</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interpretation Guide -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-question-circle"></i> Understanding the Results
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-seedling text-success"></i> Flower Detection</h6>
+                        <p class="text-muted">
+                            The model analyzes the image for flower characteristics including:
+                        </p>
+                        <ul class="text-muted">
+                            <li>Color patterns typical of flowers</li>
+                            <li>Shape and structure features</li>
+                            <li>Texture and petal arrangements</li>
+                            <li>Overall composition and context</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-image text-muted"></i> Background Classification</h6>
+                        <p class="text-muted">
+                            Images classified as background may contain:
+                        </p>
+                        <ul class="text-muted">
+                            <li>Landscapes without prominent flowers</li>
+                            <li>Objects, buildings, or other subjects</li>
+                            <li>Abstract patterns or textures</li>
+                            <li>Images where flowers are not the main focus</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function shareResult() {
+    if (navigator.share) {
+        navigator.share({
+            title: 'Flower Detection Result',
+            text: `Prediction: {{ result.prediction.title() }} ({{ (result.confidence * 100) | round(1) }}% confidence)`,
+            url: window.location.href
+        });
+    } else {
+        // Fallback: copy to clipboard
+        const text = `Flower Detection Result:\nPrediction: {{ result.prediction.title() }}\nConfidence: {{ (result.confidence * 100) | round(1) }}%\nTime: {{ result.inference_time_ms | round(1) }}ms`;
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Result copied to clipboard!');
+        });
+    }
+}
+
+// Add some visual effects
+document.addEventListener('DOMContentLoaded', function() {
+    // Animate confidence bars
+    const progressBars = document.querySelectorAll('.progress-bar');
+    progressBars.forEach(bar => {
+        const width = bar.style.width;
+        bar.style.width = '0%';
+        setTimeout(() => {
+            bar.style.width = width;
+        }, 500);
+    });
+});
+</script>
+{% endblock %}

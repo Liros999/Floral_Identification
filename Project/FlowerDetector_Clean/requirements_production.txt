@@ -1,0 +1,34 @@
+# Core ML Dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+Pillow>=9.5.0
+tqdm>=4.65.0
+
+# Data Processing
+pandas>=2.0.0
+psutil>=5.9.0
+
+# Web Interface Dependencies
+Flask>=2.3.0
+Werkzeug>=2.3.0
+
+# API Server Dependencies
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+requests>=2.31.0
+
+# Visualization and Monitoring
+tensorboard>=2.13.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Configuration and Utilities
+PyYAML>=6.0
+pathlib2>=2.3.7
+
+# Development and Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0

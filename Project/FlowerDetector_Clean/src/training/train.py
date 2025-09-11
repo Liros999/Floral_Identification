@@ -22,6 +22,7 @@ from sklearn.metrics import precision_score, recall_score, accuracy_score, confu
 from sklearn.model_selection import train_test_split
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+import torchvision
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class FlowerTrainer:
         # Initialize training state
         self.model = None
         self.optimizer = None
+        self.scheduler = None
         self.criterion = None
         self.train_loader = None
         self.val_loader = None
@@ -77,44 +79,84 @@ class FlowerTrainer:
         self.best_model_state = None
         self.epochs_without_improvement = 0
         
-        # TensorBoard setup already handled in start_tensorboard method
+        # TensorBoard
+        self.writer = None
+        self.log_dir = None
+        self._graph_logged = False
         
         logger.info(f"FlowerTrainer initialized on {self.device}")
         logger.info(f"Target precision: ≥{self.target_precision:.1%}")
         logger.info(f"Minimum recall: ≥{self.min_recall:.1%}")
     
+    def _find_open_port(self, starting_port: int = 6006, max_tries: int = 20) -> int:
+        """
+        Find an available localhost TCP port starting from starting_port.
+        """
+        import socket
+        port = starting_port
+        for _ in range(max_tries):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(("127.0.0.1", port))
+                    return port
+                except OSError:
+                    port += 1
+        return starting_port
+
     def start_tensorboard(self) -> None:
         """
         Start TensorBoard in the background and attempt to open it in the browser.
         Initializes a SummaryWriter pointed at a fresh run directory.
         """
         try:
-            # Prepare log directory
+            # Prepare log directories (absolute paths anchored to project root)
             timestamp = int(time.time())
-            self.log_dir = f"logs/tensorboard/run_{timestamp}"
-            Path(self.log_dir).mkdir(parents=True, exist_ok=True)
-            logger.info(f"📁 Created TensorBoard log directory: {self.log_dir}")
+            # Use config.yaml log_dir anchored to project root, not CWD
+            project_root = Path(__file__).resolve().parents[2]  # Project/FlowerDetector_Clean
+            configured_log_dir = self.config.get('tensorboard', {}).get('log_dir', 'logs/tensorboard')
+            log_root = (project_root / configured_log_dir).resolve()
+            run_dir = log_root / f"run_{timestamp}"
+            log_root.mkdir(parents=True, exist_ok=True)
+            run_dir.mkdir(parents=True, exist_ok=True)
+            self.log_dir = str(run_dir)
+            self._tb_log_root = str(log_root)
+            logger.info(f"📁 TensorBoard log root: {self._tb_log_root}")
+            logger.info(f"📁 Run directory: {self.log_dir}")
+
+            # Find and store the chosen port to use consistently
+            self._tb_port = self._find_open_port(self.config.get('tensorboard', {}).get('port', 6006))
 
             # Initialize writer early so logs are present when TB starts
             self.writer = SummaryWriter(self.log_dir)
             logger.info("📈 TensorBoard SummaryWriter initialized")
+            # Write immediate summaries so dashboards activate instantly
+            try:
+                self.writer.add_text('run/meta', 'run started', 0)
+                self.writer.add_scalar('run/started', 1, 0)
+                self.writer.flush()
+            except Exception:
+                pass
 
             # Launch TensorBoard process (Windows-friendly)
             def run_tensorboard():
                 try:
                     import platform
+                    # Minimize TensorFlow verbosity inside TensorBoard while keeping performance
+                    tb_env = os.environ.copy()
+                    # 0=all, 1=filter INFO, 2=filter WARNING, 3=filter ERROR
+                    tb_env["TF_CPP_MIN_LOG_LEVEL"] = tb_env.get("TF_CPP_MIN_LOG_LEVEL", "2")
                     if platform.system() == "Windows":
                         cmd = [
                             "python", "-m", "tensorboard.main",
-                            "--logdir", self.log_dir,
-                            "--port", "6006",
+                            "--logdir", self._tb_log_root,
+                            "--port", str(self._tb_port),
                             "--host", "localhost",
                         ]
                     else:
                         cmd = [
                             "tensorboard",
-                            "--logdir", self.log_dir,
-                            "--port", "6006",
+                            "--logdir", self._tb_log_root,
+                            "--port", str(self._tb_port),
                             "--host", "localhost",
                         ]
                     logger.info(f"🚀 Starting TensorBoard: {' '.join(cmd)}")
@@ -124,6 +166,7 @@ class FlowerTrainer:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         creationflags=creation_flags,
+                        env=tb_env,
                     )
                     logger.info("🚀 TensorBoard process started")
                 except Exception as e:
@@ -137,18 +180,18 @@ class FlowerTrainer:
             logger.info("⏳ Waiting for TensorBoard to initialize...")
             time.sleep(5)
 
-            # Try opening in the default browser
+            # Try opening in the default browser using the actual chosen port
             try:
-                webbrowser.open("http://localhost:6006", new=2)
+                webbrowser.open(f"http://localhost:{self._tb_port}", new=2)
                 logger.info("🌐 TensorBoard dashboard opened in browser")
                 print("\n" + "=" * 60)
                 print("🌐 TensorBoard Dashboard Launched!")
-                print("📊 URL: http://localhost:6006")
+                print(f"📊 URL: http://localhost:{self._tb_port}")
                 print("📈 Monitor training progress in real-time")
                 print("=" * 60 + "\n")
             except Exception as e:
                 logger.warning(f"Could not auto-open browser: {e}")
-                logger.info("📊 Manually open: http://localhost:6006")
+                logger.info(f"📊 Manually open: http://localhost:{self._tb_port}")
         except Exception as e:
             logger.warning(f"TensorBoard setup failed: {e}")
 
@@ -169,6 +212,12 @@ class FlowerTrainer:
                 lr=self.learning_rate,
                 weight_decay=self.weight_decay
             )
+        elif optimizer_type == 'adamw':
+            self.optimizer = optim.AdamW(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay
+            )
         elif optimizer_type == 'sgd':
             self.optimizer = optim.SGD(
                 self.model.parameters(),
@@ -179,11 +228,41 @@ class FlowerTrainer:
         else:
             raise ValueError(f"Unsupported optimizer: {optimizer_type}")
         
+        # Setup learning rate scheduler
+        scheduler_type = self.training_config.get('scheduler', 'cosine_annealing').lower()
+        if scheduler_type == 'cosine_annealing':
+            min_lr = self.training_config.get('min_lr', self.learning_rate * 0.01)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, 
+                T_max=self.epochs,
+                eta_min=min_lr
+            )
+        elif scheduler_type == 'step_lr':
+            step_size = self.training_config.get('scheduler_step_size', self.epochs // 3)
+            gamma = self.training_config.get('scheduler_gamma', 0.1)
+            self.scheduler = optim.lr_scheduler.StepLR(
+                self.optimizer,
+                step_size=step_size,
+                gamma=gamma
+            )
+        elif scheduler_type == 'plateau':
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode='max',
+                factor=0.5,
+                patience=3,
+                verbose=True
+            )
+        else:
+            logger.warning(f"Unknown scheduler type: {scheduler_type}, using no scheduler")
+            self.scheduler = None
+        
         # Setup loss function - binary classification
         self.criterion = nn.CrossEntropyLoss()
         
         logger.info(f"Model setup complete:")
         logger.info(f"  - Optimizer: {optimizer_type}")
+        logger.info(f"  - Scheduler: {scheduler_type}")
         logger.info(f"  - Learning rate: {self.learning_rate}")
         logger.info(f"  - Weight decay: {self.weight_decay}")
     
@@ -241,15 +320,15 @@ class FlowerTrainer:
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True,
-            num_workers=num_workers, pin_memory=False
+            num_workers=num_workers, pin_memory=False, persistent_workers=True
         )
         self.val_loader = DataLoader(
             val_dataset, batch_size=batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=False
+            num_workers=num_workers, pin_memory=False, persistent_workers=True
         )
         self.test_loader = DataLoader(
             test_dataset, batch_size=batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=False
+            num_workers=num_workers, pin_memory=False, persistent_workers=True
         )
 
         logger.info(f"Data loaders created:")
@@ -304,11 +383,28 @@ class FlowerTrainer:
             # Forward pass
             self.optimizer.zero_grad()
             outputs = self.model(batch_images)
+
+            # Log the model graph once using a real batch
+            if self.writer is not None and not self._graph_logged:
+                try:
+                    self.writer.add_graph(self.model, batch_images)
+                    self._graph_logged = True
+                except Exception:
+                    # Attempt only once; skip on failure to avoid slowing training
+                    self._graph_logged = True
             loss = self.criterion(outputs, batch_labels)
             
             # Backward pass
             loss.backward()
+            
+            # Gradient clipping for training stability
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             self.optimizer.step()
+            
+            # Step scheduler if available
+            if self.scheduler is not None:
+                self.scheduler.step()
             
             # Statistics
             total_loss += loss.item()
@@ -365,25 +461,30 @@ class FlowerTrainer:
         
         return average_loss, accuracy, precision, recall, f1
     
-    def check_early_stopping(self, val_precision: float) -> bool:
+    def check_early_stopping(self, metrics: Dict[str, float]) -> bool:
         """
-        Check if training should stop early based on validation precision.
+        Check if training should stop early based on configured monitor metric.
         
         Args:
-            val_precision: Current validation precision
+            metrics: Dictionary containing validation metrics
             
         Returns:
             True if training should stop
         """
-        if val_precision > self.best_val_precision:
-            self.best_val_precision = val_precision
+        # Get monitor metric from config (default to val_precision for backward compatibility)
+        monitor_key = self.training_config.get('early_stopping', {}).get('monitor', 'val_precision')
+        current_metric = metrics.get(monitor_key, 0.0)
+        
+        if current_metric > self.best_val_precision:
+            self.best_val_precision = current_metric
             self.best_model_state = self.model.state_dict().copy()
             self.epochs_without_improvement = 0
+            logger.info(f"New best {monitor_key}: {current_metric:.4f}")
             return False
         else:
             self.epochs_without_improvement += 1
             if self.epochs_without_improvement >= self.patience:
-                logger.info(f"Early stopping triggered after {self.patience} epochs without improvement")
+                logger.info(f"Early stopping triggered after {self.patience} epochs without improvement in {monitor_key}")
                 return True
             return False
     
@@ -405,8 +506,30 @@ class FlowerTrainer:
         
         start_time = time.time()
         
+        # Two-stage training setup
+        two_stage = self.training_config.get('two_stage_training', False)
+        stage1_epochs = self.training_config.get('stage1_epochs', 10)
+        stage2_lr = self.training_config.get('stage2_learning_rate', 1e-5)
+        
         for epoch in range(self.epochs):
             epoch_start = time.time()
+            
+            # Two-stage training logic
+            if two_stage and epoch < stage1_epochs:
+                # Stage 1: Freeze backbone, train only classifier
+                if epoch == 0:
+                    logger.info(f"STAGE 1: Freezing backbone for {stage1_epochs} epochs")
+                    self._freeze_backbone()
+                current_stage = "Stage 1 (Frozen Backbone)"
+            else:
+                # Stage 2: Unfreeze all, fine-tune
+                if two_stage and epoch == stage1_epochs:
+                    logger.info(f"STAGE 2: Unfreezing backbone, reducing LR to {stage2_lr}")
+                    self._unfreeze_backbone()
+                    self._adjust_learning_rate(stage2_lr)
+                current_stage = "Stage 2 (Fine-tuning)"
+            
+            logger.info(f"Epoch {epoch + 1}/{self.epochs} ({current_stage})")
             
             # Train
             train_loss, train_accuracy = self.train_epoch()
@@ -423,6 +546,56 @@ class FlowerTrainer:
             self.history['val_recall'].append(val_recall)
             self.history.setdefault('val_f1', []).append(val_f1)
             
+            # Write TensorBoard scalars
+            if self.writer is not None:
+                global_step = epoch + 1
+                self.writer.add_scalar('train/loss', train_loss, global_step)
+                self.writer.add_scalar('train/accuracy', train_accuracy, global_step)
+                self.writer.add_scalar('val/loss', val_loss, global_step)
+                self.writer.add_scalar('val/accuracy', val_accuracy, global_step)
+                self.writer.add_scalar('val/precision', val_precision, global_step)
+                self.writer.add_scalar('val/recall', val_recall, global_step)
+                self.writer.add_scalar('val/f1', val_f1, global_step)
+                # Learning rate logging (supports schedulers or static lr)
+                try:
+                    current_lr = next(iter(self.optimizer.param_groups))['lr'] if self.optimizer else self.learning_rate
+                    self.writer.add_scalar('training/learning_rate', current_lr, global_step)
+                except Exception:
+                    pass
+
+                # Heavy logging only every 5 epochs to reduce overhead
+                if epoch % 5 == 0 or epoch == self.epochs - 1:
+                    # Parameter and gradient histograms (epoch-level)
+                    try:
+                        for name, param in self.model.named_parameters():
+                            try:
+                                self.writer.add_histogram(f'params/{name}', param.detach().cpu().numpy(), global_step)
+                                if param.grad is not None:
+                                    self.writer.add_histogram(f'grads/{name}', param.grad.detach().cpu().numpy(), global_step)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                    # Sample image grids from train/val
+                    try:
+                        train_batch = next(iter(self.train_loader))
+                        train_imgs = train_batch[0][:8].detach().cpu()
+                        train_imgs = (train_imgs - train_imgs.min()) / (train_imgs.max() - train_imgs.min() + 1e-8)
+                        train_grid = torchvision.utils.make_grid(train_imgs, nrow=4)
+                        self.writer.add_image('train/sample_batch', train_grid, global_step)
+                    except Exception:
+                        pass
+                    try:
+                        val_batch = next(iter(self.val_loader))
+                        val_imgs = val_batch[0][:8].detach().cpu()
+                        val_imgs = (val_imgs - val_imgs.min()) / (val_imgs.max() - val_imgs.min() + 1e-8)
+                        val_grid = torchvision.utils.make_grid(val_imgs, nrow=4)
+                        self.writer.add_image('val/sample_batch', val_grid, global_step)
+                    except Exception:
+                        pass
+                self.writer.flush()
+            
             epoch_time = time.time() - epoch_start
             
             # Log progress
@@ -438,7 +611,13 @@ class FlowerTrainer:
                 logger.info(f"🎯 TARGET PRECISION REACHED: {val_precision:.3f} ≥ {self.target_precision:.3f}")
             
             # Early stopping check
-            if self.check_early_stopping(val_precision):
+            metrics_dict = {
+                'val_precision': val_precision,
+                'val_f1': val_f1,
+                'val_recall': val_recall,
+                'val_accuracy': val_accuracy
+            }
+            if self.check_early_stopping(metrics_dict):
                 break
         
         total_time = time.time() - start_time
@@ -475,6 +654,32 @@ class FlowerTrainer:
         
         # Training curves already logged to TensorBoard
         
+        # Finalize TensorBoard writer
+        try:
+            if self.writer is not None:
+                # Log final metrics as hparams summary for quick comparison between runs
+                try:
+                    hparams = {
+                        'epochs': self.epochs,
+                        'learning_rate': self.learning_rate,
+                        'weight_decay': self.weight_decay,
+                        'target_precision': self.target_precision,
+                        'min_recall': self.min_recall,
+                    }
+                    metrics = {
+                        'hparam/accuracy': final_accuracy,
+                        'hparam/precision': final_precision,
+                        'hparam/recall': final_recall,
+                        'hparam/loss': final_loss,
+                    }
+                    self.writer.add_hparams(hparams, metrics)
+                except Exception:
+                    pass
+                self.writer.flush()
+                self.writer.close()
+        except Exception:
+            pass
+
         return results
     
     def evaluate_on_test_set(self) -> Dict[str, Any]:
@@ -551,6 +756,7 @@ class FlowerTrainer:
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict() if self.optimizer else None,
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
             'config': self.config,
             'best_val_precision': self.best_val_precision,
             'history': self.history
@@ -558,6 +764,24 @@ class FlowerTrainer:
         
         torch.save(checkpoint, filepath)
         logger.info(f"Model saved to {filepath}")
+    
+    def _freeze_backbone(self):
+        """Freeze backbone parameters for Stage 1 training."""
+        for param in self.model.backbone.parameters():
+            param.requires_grad = False
+        logger.info("Backbone frozen - only classifier will be trained")
+    
+    def _unfreeze_backbone(self):
+        """Unfreeze backbone parameters for Stage 2 fine-tuning."""
+        for param in self.model.backbone.parameters():
+            param.requires_grad = True
+        logger.info("Backbone unfrozen - full model will be fine-tuned")
+    
+    def _adjust_learning_rate(self, new_lr):
+        """Adjust learning rate for Stage 2 fine-tuning."""
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = new_lr
+        logger.info(f"Learning rate adjusted to {new_lr}")
 
 
 def create_trainer(config: Dict[str, Any]) -> FlowerTrainer:
@@ -572,3 +796,4 @@ def create_trainer(config: Dict[str, Any]) -> FlowerTrainer:
     """
     trainer = FlowerTrainer(config)
     return trainer
+

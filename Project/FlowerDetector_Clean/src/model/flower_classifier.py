@@ -1,49 +1,67 @@
-"""Simple ResNet50 flower classifier - NO MASK R-CNN complexity."""
+"""Simplified EfficientNet-B0 flower classifier - optimized for binary classification."""
 
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from torchvision.models import ResNet50_Weights
+from torchvision.models import EfficientNet_B0_Weights
 from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
 
 class FlowerClassifier(nn.Module):
-    """Simple ResNet50-based binary classifier."""
+    """
+    Simplified EfficientNet-B0-based binary classifier.
     
-    def __init__(self, num_classes: int = 2, pretrained: bool = True, dropout_rate: float = 0.5):
+    Architecture: EfficientNet-B0 backbone + 3-layer MLP classifier
+    - ~5.3M parameters (efficient and appropriate for dataset size)
+    - No attention mechanism (unnecessary for binary classification)
+    - Optimized for flower vs background classification
+    """
+    
+    def __init__(self, num_classes: int = 2, pretrained: bool = True, dropout_rate: float = 0.3):
         super(FlowerClassifier, self).__init__()
         
         if num_classes != 2:
             raise ValueError("Binary classifier - num_classes must be 2")
         
-        # Load pretrained ResNet50 using modern weights API
-        weights = ResNet50_Weights.DEFAULT if pretrained else None
-        self.backbone = models.resnet50(weights=weights)
-        backbone_features = self.backbone.fc.in_features
+        # Load pretrained EfficientNet-B0 using modern weights API
+        weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
+        self.backbone = models.efficientnet_b0(weights=weights)
         
-        # Remove final FC layer
-        self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
+        # Get feature dimensions
+        backbone_features = self.backbone.classifier[1].in_features
         
-        # Classification head
+        # Remove final classifier
+        self.backbone.classifier = nn.Identity()
+        
+        # Remove attention mechanism - it's causing over-parameterization
+        # Standard EfficientNet features are sufficient for binary classification
+        
+        # Optimized classification head
         self.classifier = nn.Sequential(
             nn.Dropout(dropout_rate),
             nn.Linear(backbone_features, 512),
             nn.ReLU(inplace=True),
+            nn.BatchNorm1d(512),
             nn.Dropout(dropout_rate * 0.6),
-            nn.Linear(512, num_classes)
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm1d(256),
+            nn.Dropout(dropout_rate * 0.3),
+            nn.Linear(256, num_classes)
         )
         
-        logger.info(f"FlowerClassifier initialized")
+        logger.info(f"SimplifiedFlowerClassifier initialized with EfficientNet-B0")
+        logger.info(f"Parameters: {sum(p.numel() for p in self.parameters()):,}")
+        logger.info(f"Architecture: EfficientNet-B0 + 3-layer MLP (no attention)")
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass."""
-        # Backbone features
-        features = self.backbone(x)  # [batch, 2048, 1, 1]
-        features = torch.flatten(features, 1)  # [batch, 2048]
+        """Simplified forward pass - EfficientNet backbone + classifier."""
+        # Backbone features (EfficientNet-B0 produces excellent global features)
+        features = self.backbone(x)  # [batch, 1280]
         
-        # Classification
+        # Direct classification (no attention needed for binary classification)
         logits = self.classifier(features)  # [batch, 2]
         return logits
     
