@@ -1,0 +1,71 @@
+Foundational Flower Detector
+Comprehensive File & Functionality Breakdown
+This section details the specific purpose, functions, and underlying methods of every script in the src/ directory.
+Directory: src/data_preparation/
+●	utils.py
+○	Purpose: A utility module for core, project-wide functionalities, primarily focused on ensuring reproducibility and safe file operations.
+○	Key Functions & Functionality:
+■	set_seed(seed: int) -> None:
+■	Functionality: Sets the random seed for all relevant libraries (numpy, random, tensorflow). This is the cornerstone of our reproducibility strategy (Decision A3). It ensures that any stochastic process (data shuffling, model weight initialization) is deterministic.
+■	Method: Directly calls numpy.random.seed(seed), random.seed(seed), and tf.random.set_seed(seed).
+■	atomic_write(filepath: str, data: object) -> None:
+■	Functionality: A file-writing function that prevents race conditions, critical for our JSON-based state management (Decision A1).
+■	Method: Implements a file-locking mechanism. It creates a temporary .lock file, writes the data to the target file, and then deletes the .lock file. Any other process attempting to write will wait until the lock is released.
+●	build_dataset.py
+○	Purpose: The primary script for constructing and versioning our training, validation, and test datasets.
+○	Key Functions & Functionality:
+■	load_image_paths(config: dict) -> tuple: Loads file paths from the Google Drive directories specified in config.yaml.
+■	create_deterministic_splits(paths: list, seed: int) -> dict:
+■	Functionality: Splits the data into training, validation, and test sets.
+■	Method: Uses sklearn.model_selection.train_test_split twice (once to create the test set, once to create the validation set). The random_state parameter is critically set to the global_random_seed from our config to ensure the splits are identical every time the script is run.
+■	generate_coco_json(image_set: list, annotations: dict, version: int) -> None:
+■	Functionality: Assembles the data into the COCO JSON format.
+■	Method: Populates a Python dictionary with the required keys (images, annotations, categories) and saves it as a versioned JSON file (e.g., train_v2.json) using the atomic_write utility.
+■	main(): The main execution block that orchestrates the entire process, including reading the confirmed_hard_negatives.log and integrating these images into the next training split.
+________________________________________
+Directory: src/training/
+●	train.py
+○	Purpose: The core training script that handles model compilation, training, evaluation, and registration.
+○	Key Functions & Functionality:
+■	build_model(config: dict) -> tf.keras.Model:
+■	Functionality: Configures and compiles the Mask R-CNN model.
+■	Method: Initializes the Mask R-CNN architecture with a ResNet-101 backbone, pre-trained on COCO. It compiles the model with an optimizer (e.g., Adam) and specifies the loss functions.
+■	get_loss_functions() -> dict:
+■	Functionality: Defines the multi-component loss function that the model optimizes.
+■	Mathematics: The total loss L is a weighted sum of several individual losses: L=Lrpn_class+Lrpn_bbox+Lmrcnn_class+Lmrcnn_bbox+Lmrcnn_mask.
+■	Lrpn_class & Lmrcnn_class: Binary/Categorical Cross-Entropy Loss for object classification at the RPN and final head stages.
+■	Lrpn_bbox & Lmrcnn_bbox: Smooth L1 Loss, a robust regression loss for refining the coordinates of the bounding boxes.
+■	Lmrcnn_mask: Binary Cross-Entropy Loss applied pixel-wise for the segmentation mask head.
+■	evaluate_on_challenge_set(model, challenge_set) -> dict:
+■	Functionality: Evaluates the trained model against our small, fixed "challenge set" to specifically track performance on known difficult cases and detect regressions (Decision A2).
+■	Method: Runs inference on the challenge set and calculates Precision and Recall, returning these as specific metrics to be logged.
+■	main(): Orchestrates the entire training lifecycle: connects to the MLflow registry (Decision A3), loads data, trains the model, logs metrics to TensorBoard, evaluates, and registers the new version.
+●	find_hard_negatives.py
+○	Purpose: The automated script that uses the best trained model to find its own failures, fueling the next cycle of improvement.
+○	Key Functions & Functionality:
+■	load_best_model_from_registry(registry_name: str) -> tf.keras.Model: Programmatically connects to the MLflow registry and fetches the model version currently tagged as "Production" or "Latest".
+■	scan_background_images(model, config: dict) -> list:
+■	Functionality: Iterates through the negative image set, runs inference, and identifies false positives.
+■	Method & Threshold: For each detected object, it checks the output confidence score. If the score is greater than the confidence_threshold defined in config.yaml, the image path and bounding box coordinates are considered a hard negative and added to a list.
+■	Mathematics: Flag if max(P(cj))>Tconfidence, where P(cj) is the model's predicted probability for class j (in our case, just the "flower" class) and Tconfidence is our threshold (e.g., 0.90).
+■	main(): Loads the model, scans for hard negatives, and writes the results to verification_queue.json using the atomic_write utility.
+
+
+________________________________________
+Directory: src/verification_ui/
+●	app.py (Streamlit Application)
+○	Purpose: A simple, on-demand web application to allow for efficient and focused human intervention.
+○	Key Functions & Functionality:
+■	load_verification_queue(config: dict) -> list: Reads the verification_queue.json from Google Drive.
+■	display_image_for_review(image_path: str, box: list, confidence: float) -> bool:
+■	Functionality: Renders the core UI for a single image review.
+■	Method: Uses Streamlit components (st.image, st.header, st.button) to display the image, draw the bounding box using OpenCV, and present the formatted confidence score and verification button (Decision A5). Returns True if the confirmation button is clicked.
+■	append_to_log(image_path: str, config: dict) -> None: Appends the confirmed hard negative path to the confirmed_hard_negatives.log file using the atomic_write utility.
+■	main(): The main application loop that manages the session state, presents images to the user, and handles button clicks. It includes the "heads-up" message about the queue size (Decision A4).
+________________________________________
+3. Success Thresholds & Definition of "Done"
+The project will be considered complete for this foundational phase when the following criteria are met:
+1.	Primary Success Threshold: The final trained model must achieve a Precision of ≥ 0.98 on the unseen, holdout Test Set. This aligns with our core strategic goal of minimizing false positives.
+2.	Secondary Metric: The model must simultaneously achieve a Recall of ≥ 0.85 on the Test Set. This ensures the model is not overly cautious to the point of being useless.
+3.	HNM Cycle Exit Condition (Decision A4): As we will monitor this manually, we will consider the HNM cycle to have reached a point of diminishing returns if a full run of find_hard_negatives.py on 50,000 background images yields fewer than 50 new, unique false positives. At this point, the model's primary points of confusion are considered resolved, and we will proceed to the final evaluation.
+

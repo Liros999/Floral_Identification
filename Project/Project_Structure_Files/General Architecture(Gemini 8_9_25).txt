@@ -1,0 +1,23 @@
+Foundational Flower Detector
+comprehensive architecture for our foundational phase, incorporating all of your strategic decisions.
+1. Core Objective:
+To train a highly precise object detection model (Mask R-CNN) that can reliably distinguish real flowers from a diverse set of real-world objects based primarily on shape and appearance. The model's primary goal is to minimize false positives (misidentifying non-flowers as flowers).
+2. The Training Data: "Real Flowers vs. The World"
+●	The Positive Set (FLOWER): A large, diverse set of images containing real, blooming flowers of various species. As you noted, the focus will be on learning the many shapes of true flowers.
+●	The Negative Set (BACKGROUND): A large set of images of real-world objects that are explicitly not flowers. Based on your decision, we will not focus on "impostor flowers" (artificial flowers, patterns). Instead, the set will consist of:
+○	General objects from datasets like COCO (vehicles, animals, furniture).
+○	Images from the Israeli flora dataset that contain only leaves, stems, or landscapes.
+This strategy is designed to teach the model the core task: finding a real flower in a natural or man-made environment.
+3. The Training Loop: Prioritizing Precision
+Our training workflow is designed to achieve your stated goal of "preferring blindness over misinterpretation." The core of this is the Hard Negative Mining cycle.
+1.	Initial Training: We will fine-tune the Mask R-CNN model on our initial "Real Flowers vs. The World" dataset.
+2.	Identify False Positives: We will run the trained model on a large set of BACKGROUND images it has never seen. We will collect all instances where the model incorrectly draws a box around a non-flower object.
+3.	Human Verification & Correction: A simple UI will present these incorrect detections to you. Your task is to rapidly confirm: "This is NOT a flower."
+4.	Reinforcement Training: These confirmed false positives—the model's most difficult mistakes—are added to the BACKGROUND training set. The model is then retrained. This process explicitly punishes the model for making these specific errors, forcing it to become more precise and less likely to misinterpret objects.
+5.	Repeat: This cycle is repeated, with each iteration making the model more cautious and more accurate in its positive identifications.
+4. The Success Metric: High Precision
+The success of this foundational phase is defined by your strategic choice. The model will be evaluated on a holdout test set of mixed images.
+●	Primary Metric: Precision. We will aim for a very high precision score (e.g., 98% or higher). This means that if the model says something is a flower, we can be highly confident it is correct.
+●	Secondary Metric: Recall. We will measure recall, but we will accept a lower score. This acknowledges our explicit decision that it is better for the model to miss a few real flowers (lower recall) than to incorrectly identify even a few non-flowers (lower precision).
+This refined architecture is now a direct reflection of your expert decisions. It is a focused, robust, and strategically sound plan for building the foundational model this project requires.
+
