@@ -675,9 +675,25 @@ class FlowerTrainer:
             
             # Metrics already logged to TensorBoard in start_tensorboard method
             
+            # Save model checkpoint every 10 epochs
+            if (epoch + 1) % 10 == 0:
+                try:
+                    checkpoint_path = Path(f"models/checkpoints/checkpoint_epoch_{epoch+1}.pth")
+                    self.save_model(checkpoint_path)
+                    logger.info(f"💾 Checkpoint saved: {checkpoint_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save checkpoint: {e}")
+            
             # Check if we've reached target precision
             if val_precision >= self.target_precision:
                 logger.info(f"🎯 TARGET PRECISION REACHED: {val_precision:.3f} ≥ {self.target_precision:.3f}")
+                # Save the model when target is reached
+                try:
+                    target_model_path = Path("models/checkpoints/target_reached_model.pth")
+                    self.save_model(target_model_path)
+                    logger.info(f"🎯 Target precision model saved: {target_model_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save target model: {e}")
             
             # Early stopping check
             metrics_dict = {
@@ -720,6 +736,22 @@ class FlowerTrainer:
         logger.info(f"  - Recall: {final_recall:.3f} (target: ≥{self.min_recall:.3f})")
         logger.info(f"  - Accuracy: {final_accuracy:.3f}")
         logger.info(f"  - F1: {final_f1:.3f}")
+        
+        # Save the final trained model
+        try:
+            final_model_path = Path("models/checkpoints/final_model.pth")
+            self.save_model(final_model_path)
+            logger.info(f"✅ Final model saved to: {final_model_path}")
+        except Exception as e:
+            logger.error(f"Failed to save final model: {e}")
+        
+        # Save the best model if different from final
+        try:
+            best_model_path = Path("models/checkpoints/best_model.pth")
+            self.save_model(best_model_path)
+            logger.info(f"✅ Best model saved to: {best_model_path}")
+        except Exception as e:
+            logger.error(f"Failed to save best model: {e}")
         
         # Training curves already logged to TensorBoard
         
@@ -833,6 +865,51 @@ class FlowerTrainer:
         
         torch.save(checkpoint, filepath)
         logger.info(f"Model saved to {filepath}")
+    
+    def load_model(self, filepath: Path) -> None:
+        """
+        Load a trained model from checkpoint.
+        
+        Args:
+            filepath: Path to model checkpoint
+        """
+        if self.model is None:
+            raise ValueError("No model to load into")
+        
+        filepath = Path(filepath)
+        if not filepath.exists():
+            raise FileNotFoundError(f"Model file not found: {filepath}")
+        
+        try:
+            # Fix for PyTorch 2.6+ weights_only security feature
+            checkpoint = torch.load(filepath, map_location=self.device, weights_only=False)
+            
+            # Load model state
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            
+            # Load optimizer state if available
+            if self.optimizer and checkpoint.get('optimizer_state_dict'):
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            
+            # Load scheduler state if available
+            if self.scheduler and checkpoint.get('scheduler_state_dict'):
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            
+            # Load training history if available
+            if checkpoint.get('history'):
+                self.history = checkpoint['history']
+            
+            # Load best validation precision if available
+            if checkpoint.get('best_val_precision'):
+                self.best_val_precision = checkpoint['best_val_precision']
+            
+            logger.info(f"✅ Model loaded successfully from: {filepath}")
+            logger.info(f"  - Best validation precision: {self.best_val_precision:.3f}")
+            logger.info(f"  - Training history: {len(self.history)} epochs")
+            
+        except Exception as e:
+            logger.error(f"Failed to load model from {filepath}: {e}")
+            raise
     
     def _freeze_backbone(self):
         """Freeze backbone parameters for Stage 1 training."""
