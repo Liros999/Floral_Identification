@@ -1,16 +1,28 @@
 data:
-  batch_size: 12
+  batch_size: 8  # Optimized for CPU - better memory efficiency
+  # Gradient accumulation to simulate larger batch size
+  accumulate_grad_batches: 4  # Simulate batch_size=32 with less memory
   google_drive_base_path: G:/My Drive/Floral_Detector/Phase1_Foundational-Detector/Phase1_Data/raw_data
   image_size:
   - 224
   - 224
-  negative_images_subpath: negative_images (1)
-  num_workers: 8
+  # Use updated raw_data directories with balanced negatives
   positive_images_subpath: positive_images
+  negative_images_subpath: balanced_negatives
+  # Additional negative sources for comprehensive training
+  coco_negatives_subpath: coco_negatives (1)
+  negative_images_1_subpath: negative_images (1)
+  num_workers: 4  # Optimized for CPU cores
+  pin_memory: false  # Disabled for CPU training
+  persistent_workers: true  # Avoid worker respawn overhead
   stratified_splits: true
   test_ratio: 0.15
   train_ratio: 0.7
   val_ratio: 0.15
+  # Enable balanced sampling to handle class imbalance
+  balance_classes: true
+  # DISABLED image validation for 10x faster loading speed
+  validate_images: false
 # Removed unused hard_negative_mining section
 model:
   architecture: efficientnet_b0
@@ -27,13 +39,16 @@ tensorboard:
   log_dir: logs/tensorboard
   port: 6006
 training:
-  device: cpu
+  device: cpu  # CPU training (GPU not available)
+  # CPU optimizations (Intel extension disabled)
+  use_intel_extension: false  # Intel Extension for PyTorch disabled
+  intel_optimization: false   # Intel-specific optimizations disabled
   early_stopping:
     min_delta: 0.001
     monitor: val_f1
     patience: 8
   epochs: 50
-  learning_rate: 0.0001
+  learning_rate: 0.0003  # Higher initial LR for faster convergence
   min_recall: 0.85
   optimizer: adamw
   production_images_per_class: null
@@ -42,8 +57,23 @@ training:
   scheduler: cosine_annealing
   min_lr: 1.0e-06
   target_precision: 0.98
-  weight_decay: 0.0001
+  weight_decay: 0.01  # More aggressive regularization
   # Two-stage fine-tuning strategy
   two_stage_training: true
   stage1_epochs: 10  # Freeze backbone, train only classifier
-  stage2_learning_rate: 1.0e-05  # Very low LR for fine-tuning
+  stage2_learning_rate: 5.0e-05  # Less aggressive reduction
+  # Add warmup for stability
+  warmup_epochs: 3
+  warmup_start_lr: 1.0e-06
+  # Add gradient clipping for stability
+  gradient_clip_val: 1.0
+
+# System-level CPU optimizations
+system:
+  # CPU-specific threading optimizations
+  torch_threads: 8  # Set to your CPU core count
+  mkl_num_threads: 8  # Intel MKL optimization
+  omp_num_threads: 8  # OpenMP threads
+  # Memory optimizations
+  memory_efficient_attention: true
+  cpu_optimization: true

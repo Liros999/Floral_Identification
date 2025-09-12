@@ -42,7 +42,7 @@ class ConfigLoader:
             raise ValueError("min_recall must be ≥0.85")
             
     def _resolve_paths(self) -> None:
-        """Resolve paths."""
+        """Resolve paths for processed data structure."""
         data_config = self.config['data']
         base_path = Path(data_config['google_drive_base_path'])
         
@@ -51,6 +51,22 @@ class ConfigLoader:
             'positive_images': base_path / data_config['positive_images_subpath'],
             'negative_images': base_path / data_config['negative_images_subpath'],
         }
+        
+        # Add additional negative directories for comprehensive training
+        if 'coco_negatives_subpath' in data_config:
+            self.config['data_paths']['coco_negatives'] = base_path / data_config['coco_negatives_subpath']
+        if 'negative_images_1_subpath' in data_config:
+            self.config['data_paths']['negative_images_1'] = base_path / data_config['negative_images_1_subpath']
+        
+        # Legacy support for processed data paths
+        if 'val_positive_subpath' in data_config:
+            self.config['data_paths']['val_positive'] = base_path / data_config['val_positive_subpath']
+        if 'val_negative_subpath' in data_config:
+            self.config['data_paths']['val_negative'] = base_path / data_config['val_negative_subpath']
+        if 'test_positive_subpath' in data_config:
+            self.config['data_paths']['test_positive'] = base_path / data_config['test_positive_subpath']
+        if 'test_negative_subpath' in data_config:
+            self.config['data_paths']['test_negative'] = base_path / data_config['test_negative_subpath']
         
     def get(self, key: str, default: Any = None) -> Any:
         """Get config value using dot notation."""

@@ -61,12 +61,30 @@ def test_complete_training_pipeline():
             max_images = config_loader.get('training.production_images_per_class', None)
             print(f"   - Production: using ALL available images")
         
+        # Collect all negative directories
+        negative_dirs = []
+        if 'negative_images' in data_paths:
+            negative_dirs.append(data_paths['negative_images'])
+        if 'coco_negatives' in data_paths:
+            negative_dirs.append(data_paths['coco_negatives'])
+        if 'coco_negatives_1' in data_paths:
+            negative_dirs.append(data_paths['coco_negatives_1'])
+        
+        print(f"   - Using {len(negative_dirs)} negative directories:")
+        for i, neg_dir in enumerate(negative_dirs):
+            print(f"     {i+1}. {neg_dir.name}")
+        
+        # Get validation setting from config
+        validate_images = config_loader.get('data.validate_images', False)
+        print(f"   - Image validation: {'ENABLED' if validate_images else 'DISABLED (faster loading)'}")
+        
         dataset = FlowerDataset(
             positive_dir=data_paths['positive_images'],
-            negative_dir=data_paths['negative_images'],
+            negative_dirs=negative_dirs,
             transform=transforms_dict['train'],
             max_images_per_class=max_images,
-            validate_images=True
+            validate_images=validate_images,
+            balance_classes=True  # Enable balanced sampling
         )
         
         distribution = dataset.get_class_distribution()
@@ -91,6 +109,15 @@ def test_complete_training_pipeline():
         
         trainer = create_trainer(config)
         trainer.setup_model(model)
+        
+        # Add progress bar for data loading
+        print(f"\n📊 Step 4.1: Setting up data loaders...")
+        print("=" * 60)
+        print("🔄 Creating train/validation/test splits...")
+        print("⚖️ Computing class weights...")
+        print("🔧 Optimizing data loader settings...")
+        print("=" * 60)
+        
         trainer.setup_data_loaders(dataset)
         
         print(f"✅ Step 4: OPTIMIZED trainer setup complete")

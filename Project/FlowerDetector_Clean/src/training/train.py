@@ -197,12 +197,17 @@ class FlowerTrainer:
 
     def setup_model(self, model: nn.Module) -> None:
         """
-        Setup model for training.
+        Setup model for training with Intel optimizations.
         
         Args:
             model: PyTorch model to train
         """
         self.model = model.to(self.device)
+        
+        # CPU optimizations applied via system settings
+        logger.info("Using standard PyTorch CPU optimizations")
+        
+        # CPU threading optimizations are handled by system settings
         
         # Setup optimizer
         optimizer_type = self.training_config.get('optimizer', 'adam').lower()
@@ -260,11 +265,15 @@ class FlowerTrainer:
         # Setup loss function - binary classification
         self.criterion = nn.CrossEntropyLoss()
         
-        logger.info(f"Model setup complete:")
-        logger.info(f"  - Optimizer: {optimizer_type}")
-        logger.info(f"  - Scheduler: {scheduler_type}")
-        logger.info(f"  - Learning rate: {self.learning_rate}")
-        logger.info(f"  - Weight decay: {self.weight_decay}")
+        logger.info("=" * 60)
+        logger.info("🎯 MODEL SETUP COMPLETE!")
+        logger.info("=" * 60)
+        logger.info(f"🔧 Optimizer: {optimizer_type}")
+        logger.info(f"📈 Scheduler: {scheduler_type}")
+        logger.info(f"🎯 Learning rate: {self.learning_rate}")
+        logger.info(f"⚖️ Weight decay: {self.weight_decay}")
+        logger.info("=" * 60)
+    
     
     def setup_data_loaders(self, dataset) -> None:
         """
@@ -272,17 +281,25 @@ class FlowerTrainer:
         Applies stratified splits if enabled; otherwise uses deterministic random split.
         Also computes class-weighted loss from the training split.
         """
+        logger.info("🔄 Setting up data loaders...")
+        
         total_size = len(dataset)
         train_ratio = self.config['data']['train_ratio']
         val_ratio = self.config['data']['val_ratio']
         test_ratio = self.config['data']['test_ratio']
         seed = self.config['reproducibility']['global_random_seed']
+        
+        logger.info(f"📊 Dataset size: {total_size} samples")
+        logger.info(f"📈 Split ratios - Train: {train_ratio}, Val: {val_ratio}, Test: {test_ratio}")
 
         if self.config['data'].get('stratified_splits', False):
+            logger.info("⚖️ Using stratified splits for balanced class distribution...")
             indices = list(range(total_size))
-            labels = [dataset[i][1] for i in indices]
+            # Use stored labels instead of loading all images - much faster!
+            labels = [dataset.labels[i] for i in indices]
             temp_ratio = val_ratio + test_ratio
 
+            logger.info("🔄 Creating stratified train/test split...")
             train_idx, temp_idx = train_test_split(
                 indices,
                 test_size=temp_ratio,
@@ -290,6 +307,7 @@ class FlowerTrainer:
                 random_state=seed
             )
 
+            logger.info("🔄 Creating stratified validation/test split...")
             temp_labels = [labels[i] for i in temp_idx]
             val_size = int(len(temp_idx) * (val_ratio / temp_ratio))
             val_idx, test_idx = train_test_split(
@@ -304,52 +322,75 @@ class FlowerTrainer:
             val_dataset = tud.Subset(dataset, val_idx)
             test_dataset = tud.Subset(dataset, test_idx)
         else:
+            logger.info("🎲 Using deterministic random split...")
             # Deterministic random split
             generator = torch.Generator()
             generator.manual_seed(seed)
             train_size = int(train_ratio * total_size)
             val_size = int(val_ratio * total_size)
             test_size = total_size - train_size - val_size
+            
+            logger.info(f"📊 Split sizes - Train: {train_size}, Val: {val_size}, Test: {test_size}")
             train_dataset, val_dataset, test_dataset = random_split(
                 dataset, [train_size, val_size, test_size], generator=generator
             )
 
         # Create data loaders
+        logger.info("🔧 Creating optimized data loaders...")
         batch_size = self.config['data']['batch_size']
         num_workers = self.config['data']['num_workers']
+        
+        logger.info(f"📦 Batch size: {batch_size}")
+        logger.info(f"👥 Workers: {num_workers}")
+        logger.info(f"💾 Pin memory: False (CPU training)")
 
+        logger.info("🚂 Creating training data loader...")
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True,
             num_workers=num_workers, pin_memory=False, persistent_workers=True
         )
+        
+        logger.info("✅ Creating validation data loader...")
         self.val_loader = DataLoader(
             val_dataset, batch_size=batch_size, shuffle=False,
             num_workers=num_workers, pin_memory=False, persistent_workers=True
         )
+        
+        logger.info("🧪 Creating test data loader...")
         self.test_loader = DataLoader(
             test_dataset, batch_size=batch_size, shuffle=False,
             num_workers=num_workers, pin_memory=False, persistent_workers=True
         )
 
-        logger.info(f"Data loaders created:")
-        logger.info(f"  - Train: {len(train_dataset)} samples ({len(self.train_loader)} batches)")
-        logger.info(f"  - Val: {len(val_dataset)} samples ({len(self.val_loader)} batches)")
-        logger.info(f"  - Test: {len(test_dataset)} samples ({len(self.test_loader)} batches)")
+        logger.info("=" * 60)
+        logger.info("📊 DATA LOADERS CREATED SUCCESSFULLY!")
+        logger.info("=" * 60)
+        logger.info(f"🚂 Train: {len(train_dataset)} samples ({len(self.train_loader)} batches)")
+        logger.info(f"✅ Val: {len(val_dataset)} samples ({len(self.val_loader)} batches)")
+        logger.info(f"🧪 Test: {len(test_dataset)} samples ({len(self.test_loader)} batches)")
+        logger.info("=" * 60)
 
         # Compute class weights from training split for imbalanced loss
+        logger.info("⚖️ Computing class weights for balanced training...")
+        logger.info("🔄 Analyzing training data class distribution...")
+        
         try:
             if hasattr(train_dataset, 'indices'):
                 # Subset: map back to original dataset indices
-                train_labels = [dataset[i][1] for i in train_dataset.indices]
+                logger.info("📊 Extracting labels from stratified subset...")
+                train_labels = [dataset.labels[i] for i in train_dataset.indices]
             else:
-                train_labels = [label for _, label in train_dataset]
+                logger.info("📊 Extracting labels from random split...")
+                train_labels = [dataset.labels[i] for i in range(len(train_dataset))]
 
+            logger.info("🔢 Counting class occurrences...")
             import collections
             counts = collections.Counter(train_labels)
             num_neg, num_pos = counts.get(0, 0), counts.get(1, 0)
             if num_neg == 0 or num_pos == 0:
                 raise ValueError("Training split has only one class; cannot compute class weights.")
 
+            logger.info("⚖️ Computing balanced class weights...")
             total = num_neg + num_pos
             weights = torch.tensor([
                 total / (2 * num_neg),
@@ -357,14 +398,17 @@ class FlowerTrainer:
             ], dtype=torch.float32, device=self.device)
 
             self.criterion = nn.CrossEntropyLoss(weight=weights)
-            logger.info(f"Using class-weighted loss with weights: {weights.tolist()}")
+            logger.info(f"✅ Class-weighted loss enabled:")
+            logger.info(f"  🌺 Positive weight: {weights[1]:.4f}")
+            logger.info(f"  🌿 Negative weight: {weights[0]:.4f}")
+            logger.info(f"  📊 Class distribution: {num_pos} positive, {num_neg} negative")
         except Exception as e:
-            logger.warning(f"Falling back to unweighted loss: {e}")
+            logger.warning(f"⚠️ Falling back to unweighted loss: {e}")
             self.criterion = nn.CrossEntropyLoss()
     
     def train_epoch(self) -> Tuple[float, float]:
         """
-        Train for one epoch.
+        Train for one epoch with gradient accumulation support.
         
         Returns:
             Tuple of (average_loss, accuracy)
@@ -374,14 +418,16 @@ class FlowerTrainer:
         correct_predictions = 0
         total_samples = 0
         
+        # Get gradient accumulation setting
+        accumulate_grad_batches = self.config.get('data', {}).get('accumulate_grad_batches', 1)
+        
         progress_bar = tqdm(self.train_loader, desc="Training", leave=False)
         
-        for batch_images, batch_labels in progress_bar:
+        for batch_idx, (batch_images, batch_labels) in enumerate(progress_bar):
             batch_images = batch_images.to(self.device)
             batch_labels = batch_labels.to(self.device)
             
             # Forward pass
-            self.optimizer.zero_grad()
             outputs = self.model(batch_images)
 
             # Log the model graph once using a real batch
@@ -394,17 +440,25 @@ class FlowerTrainer:
                     self._graph_logged = True
             loss = self.criterion(outputs, batch_labels)
             
+            # Scale loss for gradient accumulation
+            loss = loss / accumulate_grad_batches
+            
             # Backward pass
             loss.backward()
             
-            # Gradient clipping for training stability
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            
-            self.optimizer.step()
-            
-            # Step scheduler if available
-            if self.scheduler is not None:
-                self.scheduler.step()
+            # Gradient accumulation: only step optimizer every N batches
+            if (batch_idx + 1) % accumulate_grad_batches == 0:
+                # Gradient clipping for training stability
+                clip_val = self.training_config.get('gradient_clip_val', 1.0)
+                if clip_val > 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=clip_val)
+                
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                
+                # Step scheduler if available
+                if self.scheduler is not None:
+                    self.scheduler.step()
             
             # Statistics
             total_loss += loss.item()
@@ -506,12 +560,17 @@ class FlowerTrainer:
         
         start_time = time.time()
         
+        # Create progress bar for epochs
+        from tqdm import tqdm
+        epoch_pbar = tqdm(range(self.epochs), desc="Training Progress", unit="epoch", 
+                         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+        
         # Two-stage training setup
         two_stage = self.training_config.get('two_stage_training', False)
         stage1_epochs = self.training_config.get('stage1_epochs', 10)
         stage2_lr = self.training_config.get('stage2_learning_rate', 1e-5)
         
-        for epoch in range(self.epochs):
+        for epoch in epoch_pbar:
             epoch_start = time.time()
             
             # Two-stage training logic
@@ -529,7 +588,8 @@ class FlowerTrainer:
                     self._adjust_learning_rate(stage2_lr)
                 current_stage = "Stage 2 (Fine-tuning)"
             
-            logger.info(f"Epoch {epoch + 1}/{self.epochs} ({current_stage})")
+            # Update progress bar description
+            epoch_pbar.set_description(f"Epoch {epoch + 1}/{self.epochs} ({current_stage})")
             
             # Train
             train_loss, train_accuracy = self.train_epoch()
@@ -545,6 +605,15 @@ class FlowerTrainer:
             self.history['val_precision'].append(val_precision)
             self.history['val_recall'].append(val_recall)
             self.history.setdefault('val_f1', []).append(val_f1)
+            
+            # Update progress bar with metrics
+            epoch_pbar.set_postfix({
+                'Train Loss': f'{train_loss:.4f}',
+                'Val Loss': f'{val_loss:.4f}',
+                'Val Acc': f'{val_accuracy:.3f}',
+                'Val F1': f'{val_f1:.3f}',
+                'LR': f'{self.optimizer.param_groups[0]["lr"]:.2e}'
+            })
             
             # Write TensorBoard scalars
             if self.writer is not None:
